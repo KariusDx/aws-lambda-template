@@ -1,75 +1,42 @@
-# A lambda function deployer
+# AWS Lambda Template
 
-Deploying a lambda function is actually pretty simple: just look at the justfile.
-Any related infrastructure should be created with infrastructure tooling (e.g. terraform).
-Note that this does include support for setting up a cloudwatch cron.
+This repo contains AWS lambda functions that work SQS queues.
 
-Supports a multi-environment setup. The environment defaults to "dev".
+## Organization
 
-# Dependencies
+Most code changes are for these directories
+* function/ the lambda functions live here
+* library/ code shared between functions
 
-* [just](https://github.com/casey/just#installation), a command runner
-* [aws cli](https://github.com/aws/aws-cli/releases)
-* [jq](https://stedolan.github.io/jq/download/), a cli json parser
-* bash
+Additional directories
+* template/ new functions symlink to template files
+* vendor/ installed packages shared between functions
 
+## Creating a new function
 
-# Setup
+    just new-function FUNCTION_NAME
+    cd function/FUNCTION_NAME
+    cat README.md
 
-This is tested to work with Python 3.6, but should work with any runtime. Just change the (runtime)
-configuration variables at the top of the `justfile`.
-Fill out [config/dev.json](./config/dev.json) with a `role` and a `function-name`. Create the IAM
-role (see the Appendix section)
+## Updating all functions after library changes
 
-    just setup
-    just schedule
+    just run-all deploy
 
-Run the latter command if you want your lambda to be invoked by a cloudwatch cron.
+## Running tests & MyPy
 
+This just type-checks and lints, there are no unit tests yet.
 
-# Workflow
+    just test-all
 
-Edit the code. Check changes with MyPy. You can test running the code with:
+## Installing Python dependencies
 
-    just invoke test.json
+For shared dependencies
 
-Deploy:
+    pip3 install requests -t vendor
 
-    just deploy
+If a dependency is not shared, install it to a vendor directory in your function:
 
-For an environment other than dev set the `env` variable.
-
-    just env=staging deploy
-
-Per-environment configuration is in `config/*.json`
-
-Destroy the lambda deployment:
-
-    just unschedule  # If you created the scheduler
-    just destroy
-
-
-
-## Apendix: IAM Role
-
-We manage the IAM role an associated infrastructure in terraform and recommend you do the same.
-However, to test this out, you can create a role with this policy:
-
-    {
-      "Version": "2008-10-17",
-      "Statement": [
-        {
-          "Action": "sts:AssumeRole",
-          "Principal": {
-            "Service": [
-              "lambda.amazonaws.com"
-            ]
-          },
-          "Effect": "Allow"
-        }
-      ]
-    }
-
-Attach the policy
-
-    arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+    cd function/my-function
+    rm vendor
+    mkdir vendor
+    pip3 install the-package-i-need -t vendor
