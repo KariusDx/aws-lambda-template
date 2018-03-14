@@ -1,0 +1,11 @@
+{
+  "environment": {
+  },
+  "vpc-config": {
+    "SecurityGroupIds": [],
+    "SubnetIds": [
+    ]
+  },
+  "role":"",
+  "function-name": "hello-world"
+}
