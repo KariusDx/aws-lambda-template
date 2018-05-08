@@ -17,7 +17,8 @@ compress:
 	if test -f config/{{env}}.py ; then
 	  cp config/{{env}}.py config.py
 	fi
-	zip -r function.zip *.py library/ vendor/ 1>/dev/null
+	echo "$({{get_current_commit}})" > git-commit.txt
+	zip -r function.zip *.py git-commit.txt library/ vendor/ 1>/dev/null
 
 
 configure:
@@ -30,7 +31,8 @@ configure:
 		--function-name "$function_name" \
 		--handler {{handler}} \
 		--environment "$(echo "$config" | jq -c '{"Variables": .environment}')" \
-		--vpc-config "$(echo "$config" | jq -c '."vpc-config"')"
+		--vpc-config "$(echo "$config" | jq -c '."vpc-config"')" 1>/dev/null
+
 
 deploy: compress configure
 	#!/bin/bash
@@ -40,16 +42,40 @@ deploy: compress configure
 
 	aws lambda update-function-code \
 		--function-name "$function_name" \
-		--zip-file fileb://function.zip
+		--zip-file fileb://function.zip 1>/dev/null
 
 	# Publishing a new Version of the Lambda function
-	new_version=`aws lambda publish-version --function-name "$function_name" | jq -r .Version`
+	new_version=$(aws lambda publish-version --function-name "$function_name" | jq -r .Version)
 
 	# Updating the Lambda Alias so it points to the new function
-	aws lambda update-alias --function-name "$function_name" --function-version "$new_version" --name DEPLOYED
+	aws lambda update-alias --function-name "$function_name" --function-version "$new_version" --name DEPLOYED 1>/dev/null
+
+	just verify-commit "$({{get_current_commit}})"
 
 
-invoke file qualifier='$LATEST':
+get_current_commit = "git log --pretty=oneline -n 1 | awk '{print $1}'"
+
+
+verify-commit commit='':
+	#!/bin/bash
+	set -euo pipefail
+
+	if [[ -z "{{commit}}" ]] ; then
+	    commit="$({{get_current_commit}})"
+	else
+	    commit="{{commit}}"
+	fi
+
+	output=$(just -q env={{env}} invoke "{\"verify-commit\": \"$commit\"}" | jq .)
+	if [[ $(echo "$output" | jq -r .statusCode) != 200 ]] ; then
+	  echo "$output"
+	  exit 1
+	else
+	  echo "$output" | jq -r .body | jq .
+	fi
+
+
+invoke payload qualifier='$LATEST':
 	#!/bin/bash
 	set -euo pipefail
 	config="$(cat config/{{env}}.json)"
@@ -59,8 +85,8 @@ invoke file qualifier='$LATEST':
 		--function-name "$function_name" \
 		--invocation-type RequestResponse \
 		--log-type Tail \
-		--payload "$(cat {{file}})" --qualifier '{{qualifier}}' \
-		lambda-invoke-output.txt | jq -r .LogResult | base64 -d
+		--payload '{{payload}}' --qualifier '{{qualifier}}' \
+		lambda-invoke-output.txt | jq -r .LogResult | base64 -d > lambda-invoke-info.txt
 	cat lambda-invoke-output.txt
 
 

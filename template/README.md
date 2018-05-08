@@ -48,7 +48,7 @@ This file is copied into the function directory as config.py. handler.py:
 
 Edit the code. Check changes with MyPy. You can test running the code with:
 
-    just invoke test.json
+    just invoke '{}'
 
 Deploy:
 
@@ -64,6 +64,11 @@ Destroy the lambda deployment:
 
     just unschedule  # If you created the scheduler
     just destroy
+
+The deployment will verify the current git commit was deployed.
+You can run this check manually with
+
+    just verify-commit
 
 
 ## Dependencies
