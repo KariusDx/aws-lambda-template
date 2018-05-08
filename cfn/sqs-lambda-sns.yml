@@ -1,0 +1,130 @@
+Description: |
+    Pull from SQS and send to a SNS topic.
+    A SNS Publisher has access to send to the queue.
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+    TopicName:
+      Type: String
+      Description: "Name of the topic to publish to"
+    QueueName:
+      Type: String
+      Description: "Queue Name"
+    PublisherSNSTopicARN:
+      Type: String
+      Description: "Publishing Topic"
+
+Resources:
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName:
+        Ref: TopicName
+      TopicName:
+        Ref: TopicName
+      Subscription:
+      - Protocol: https
+        Endpoint: "https://app.datadoghq.com/intake/webhook/sns?api_key=4856c14ffca9acceafb47502b97d7cfc"
+
+
+  Queue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        Ref: QueueName
+      RedrivePolicy:
+        maxReceiveCount: 5
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'dead_${QueueName}'
+
+  # Allow the lambda function to wokr the queue
+  ConsumerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'lambda-${TopicName}'
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+            - sts:AssumeRole
+      Path: '/'
+      Policies:
+        - PolicyName: sqs
+          PolicyDocument:
+              Statement:
+                - Effect: Allow
+                  Action:
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage*
+                  - sqs:PurgeQueue
+                  - sqs:ChangeMessageVisibility*
+                  Resource: !GetAtt Queue.Arn
+
+
+  # Allow publishing by the Lambda
+  TopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - Ref: SNSTopic
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action:
+          - "sns:Publish"
+          Principal:
+            AWS: !GetAtt ConsumerLambdaRole.Arn
+          Resource: '*'
+          Sid: !Sub 'Allow-Publish-To-SNS-Topic-${TopicName}'
+        Version: '2012-10-17'
+        Id: !Sub 'TopicPolicy-${QueueName}'
+
+  # SNS Topic is allowed to send to this Queue
+  QueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - Ref: Queue
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action:
+          - sqs:SendMessage
+          Principal: '*'
+          Resource: '*'
+          Condition:
+            ArnEquals:
+              aws:SourceArn:
+                Ref: PublisherSNSTopicARN
+          Sid: Allow-SendMessage-To-Queue-From-SNS-Topic
+        Version: '2012-10-17'
+        Id: !Sub 'QueuePolicy-${QueueName}'
+
+Outputs:
+  ConsumerLambdaRoleArn:
+    Value: !GetAtt ConsumerLambdaRole.Arn
+  QueueArn:
+    Value: !GetAtt Queue.Arn
+  QueueUrl:
+    Value:
+      Ref: Queue
+  DeadLetterQueueArn:
+    Value: !GetAtt DeadLetterQueue.Arn
+  DeadLetterQueueUrl:
+    Value:
+      Ref: Queue
+  TopicArn:
+    Value:
+      Ref: SNSTopic
+  TopicName:
+    Value: !GetAtt SNSTopic.TopicName

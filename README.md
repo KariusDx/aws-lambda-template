@@ -7,6 +7,7 @@ This repo contains AWS lambda functions that work SQS queues.
 Most code changes are for these directories
 * function/ the lambda functions live here
 * library/ code shared between functions
+* cfn/ cloudformation templates
 
 Additional directories
 * template/ new functions symlink to template files

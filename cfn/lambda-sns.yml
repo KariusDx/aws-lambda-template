@@ -1,0 +1,60 @@
+Description: Send from lambda to a SNS topic
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+    TopicName:
+      Type: String
+      Description: "Name of the topic to publish to"
+
+Resources:
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName:
+        Ref: TopicName
+      TopicName:
+        Ref: TopicName
+
+  # Allow the lambda function to work the queue
+  ConsumerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'lambda-${TopicName}'
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+            - sts:AssumeRole
+      Path: '/'
+
+
+  # Allow publishing by Lambda to the SNS topic
+  TopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - Ref: SNSTopic
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action:
+          - "sns:Publish"
+          Principal:
+            AWS: !GetAtt ConsumerLambdaRole.Arn
+          Resource: '*'
+          Sid: !Sub 'Allow-Publish-To-SNS-Topic-${TopicName}'
+        Version: '2012-10-17'
+        Id: !Sub 'TopicPolicy-${TopicName}'
+
+Outputs:
+  ConsumerLambdaRoleArn:
+    Value: !GetAtt ConsumerLambdaRole.Arn
+  TopicArn:
+    Value:
+      Ref: SNSTopic
+  TopicName:
+    Value: !GetAtt SNSTopic.TopicName
