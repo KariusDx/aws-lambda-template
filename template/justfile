@@ -11,7 +11,7 @@ help:
 	@echo "just is a convenient command runner. Try just -l"
 
 
-compress:
+_compress:
 	#!/bin/bash
 	set -euo pipefail
 	if test -f config/{{env}}.py ; then
@@ -21,7 +21,7 @@ compress:
 	zip -r function.zip *.py git-commit.txt library/ vendor/ 1>/dev/null
 
 
-configure:
+_configure:
 	#!/bin/bash
 	set -euo pipefail
 	config="$(cat config/{{env}}.json)"
@@ -90,7 +90,49 @@ invoke payload qualifier='$LATEST':
 	cat lambda-invoke-output.txt
 
 
-setup: compress
+# requries the key "cloudformation" in config/env.json
+infrastructure:
+	#!/bin/bash
+	set -euo pipefail
+	config="$(cat config/{{env}}.json)"
+	cfn_stacks="$(echo "$config" | jq -c -r '.cloudformation')"
+
+	if [[ -z "$cfn_stacks" ]] || [[ "$cfn_stacks" == null ]] ; then
+	  exit 0
+	fi
+
+	function_name="$(echo "$config" | jq -r '."function-name"')"
+	AWS_ENV_VARS=$(env | egrep '^AWS' | awk '{print "--env " $1}' | xargs echo || echo "")
+	cfn_dir="$(pwd)/$(ls -l cfn | awk '{print $11}')"
+	stackup="docker run $AWS_ENV_VARS -v $cfn_dir:/cfn --rm -v $(pwd):$(pwd) -w "$(pwd)" realestate/stackup:1.2.1"
+
+	trap "rm -f cfn_params.json" EXIT
+	for stack_key in $(echo "$cfn_stacks" | jq -r 'keys[]') ; do
+		if ! output=$(aws cloudformation validate-template \
+			--template-body "$(cat "cfn/$stack_key.yml")") ; then
+		  echo "$output"
+		  exit 1
+		fi
+		stack_name="$function_name-{{env}}-$stack_key"
+	    echo "$cfn_stacks" | jq -c ".\"$stack_key\"" > cfn_params.json
+		$stackup "$stack_name" up --template "/cfn/$stack_key.yml" \
+			--parameters cfn_params.json
+		# Wanted to use change sets, but encountered a non-zero exit code.
+		# May still be useful for debugging, but they didn't add much additional insight
+		#if ! $stackup "$stack_name" change-set create --name debug --template "/cfn/$stack_key.yml" \
+		#	--parameters cfn_params.json ; then
+		#  # After a change set failure it is stuck
+		#  $stackup "$stack_name" delete
+		#fi
+		#$stackup "$stack_name" change-set create --name debug --template "/cfn/$stack_key.yml" \
+		#	--parameters cfn_params.json
+		#$stackup "$stack_name" change-set inspect --name debug
+		#$stackup "$stack_name" change-set apply --name debug
+		aws cloudformation describe-stacks --stack-name "$stack_name" | jq '.Stacks[] | .Outputs'
+	done
+
+
+setup: infrastructure _compress
 	#!/bin/bash
 	set -euo pipefail
 	if ! test -f config/{{env}}.json ; then
